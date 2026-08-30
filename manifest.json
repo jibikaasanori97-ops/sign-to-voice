@@ -1,0 +1,10 @@
+{
+  "name": "手話音声変換アプリ",
+  "short_name": "手話→音声",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#1b1f2a",
+  "orientation": "portrait",
+  "icons": []
+}

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>手話→音声変換アプリ</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1b1f2a" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <h1>手話 → 音声</h1>
+  <span id="statusBadge" class="badge">読み込み中…</span>
+</header>
+
+<main>
+  <section class="camera-wrap">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+    <div id="liveLabel" class="live-label">-</div>
+  </section>
+
+  <section class="panel">
+    <div class="row">
+      <label for="sentence">読み上げ文</label>
+      <textarea id="sentence" rows="3" placeholder="認識されたサインの読み上げテキストがここに追加されます"></textarea>
+    </div>
+    <div class="btn-row">
+      <button id="speakAllBtn" class="primary">🔊 全文を読み上げ</button>
+      <button id="clearBtn">クリア</button>
+    </div>
+  </section>
+
+  <details class="panel" id="presetPanel">
+    <summary>指文字プリセット（実験的・7文字）</summary>
+    <p class="hint">
+      指文字の手の形について、複数の解説サイトの文章記述を突き合わせ、記述が一致し、かつ他の文字と混同しにくいものだけを選びました。
+      画像や映像で直接確認したものではないため、正しさはご自身で確認のうえご利用ください。
+      対象: あ・い・う・せ・て・け・か
+    </p>
+    <div class="row">
+      <label class="radio-label"><input type="checkbox" id="presetEnable" /> 指文字プリセットを有効にする</label>
+    </div>
+  </details>
+
+  <details class="panel" id="trainPanel">
+    <summary>サインを登録する</summary>
+    <div class="row">
+      <label for="labelInput">読み上げテキスト（例: こんにちは）</label>
+      <input id="labelInput" type="text" placeholder="このサインが表す言葉を入力" />
+    </div>
+
+    <div class="row">
+      <label>サインの種類</label>
+      <div class="btn-row type-row">
+        <label class="radio-label"><input type="radio" name="signType" value="static" checked /> 静止（形をキープ）</label>
+        <label class="radio-label"><input type="radio" name="signType" value="dynamic" /> 動き（手を動かす）</label>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button id="captureBtn" class="primary">✋ 今の手の形を登録（1.5秒間キープ）</button>
+    </div>
+    <p class="hint">カメラに向かって手の形（または動き）を作り、テキストを入力してからボタンを押してください。同じ言葉を複数回登録すると認識精度が上がります。「動き」を選ぶと、ボタンを押してから2秒間の手の軌跡を記録します。</p>
+
+    <div class="row">
+      <label>静止サインの感度（低いほど厳密に一致させる）</label>
+      <input id="thresholdRange" type="range" min="0.15" max="0.8" step="0.01" value="0.4" />
+      <span id="thresholdVal">0.40</span>
+    </div>
+
+    <div class="row">
+      <label>動きサインの感度（低いほど厳密に一致させる）</label>
+      <input id="dynamicThresholdRange" type="range" min="0.2" max="1.2" step="0.01" value="0.6" />
+      <span id="dynamicThresholdVal">0.60</span>
+    </div>
+
+    <div class="row">
+      <label>登録済みのサイン</label>
+      <ul id="signList" class="sign-list"></ul>
+    </div>
+  </details>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
