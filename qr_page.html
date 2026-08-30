@@ -1,0 +1,243 @@
+<style>
+  :root {
+    --bg: #0b0d13;
+    --bg-2: #11141d;
+    --panel: #161a25;
+    --panel-border: #262c3c;
+    --text: #eef1f7;
+    --muted: #8890a3;
+    --accent: #5ad1a3;
+    --accent-dim: #2f5b48;
+  }
+  :root[data-theme="light"] {
+    --bg: #f3f5f8;
+    --bg-2: #e9ecf2;
+    --panel: #ffffff;
+    --panel-border: #dde1ea;
+    --text: #171a21;
+    --muted: #5b6373;
+    --accent: #1f9d73;
+    --accent-dim: #cdeee1;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f3f5f8;
+      --bg-2: #e9ecf2;
+      --panel: #ffffff;
+      --panel-border: #dde1ea;
+      --text: #171a21;
+      --muted: #5b6373;
+      --accent: #1f9d73;
+      --accent-dim: #cdeee1;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(60% 50% at 50% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+      var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+    padding: 32px 16px;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 28px 24px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    box-shadow: 0 20px 60px -30px rgba(0,0,0,0.5);
+  }
+
+  .mark {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent);
+  }
+
+  .mark svg { width: 28px; height: 28px; }
+
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    text-wrap: balance;
+    line-height: 1.4;
+  }
+
+  .qr-frame {
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 14px;
+    line-height: 0;
+  }
+
+  .qr-frame img {
+    display: block;
+    width: 200px;
+    height: 200px;
+    image-rendering: pixelated;
+  }
+
+  .url-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+
+  .url-row a {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    text-decoration: none;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12.5px;
+  }
+
+  .copy-btn {
+    flex-shrink: 0;
+    border: none;
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 6px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .copy-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  ol.steps {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  ol.steps li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  ol.steps li b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  ol.steps .n {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-size: 10.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: ui-monospace, monospace;
+  }
+
+  .note {
+    width: 100%;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--muted);
+    border-top: 1px solid var(--panel-border);
+    padding-top: 14px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card { animation: rise 0.5s cubic-bezier(.2,.7,.3,1) both; }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  }
+</style>
+
+<div class="card">
+  <div class="mark">
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M7 11V5.5a1.5 1.5 0 0 1 3 0V11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M10 11V4.5a1.5 1.5 0 0 1 3 0V11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M13 11V5.5a1.5 1.5 0 0 1 3 0V12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M16 12V8.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L4.7 14a1.4 1.4 0 0 1 2.2-1.7L7 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20 8c1 .8 1.6 1.9 1.6 3.2S21 13.6 20 14.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.6"/>
+    </svg>
+    <span class="eyebrow">Sign → Voice</span>
+  </div>
+
+  <h1>スマホのカメラで<br />読み取ってください</h1>
+
+  <div class="qr-frame">
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0AQMAAADxGE3JAAAABlBMVEX///8AAABVwtN+AAAACXBIWXMAAA7EAAAOxAGVKw4bAAACW0lEQVR4nO3cPXLjMAyGYXhSuMwRdBQdTTqaj6IjuFShWWz4AxKUvZ6sXeL9isQS+dAdhj+yRD7MokPWn1uT3uWqf0T6pchFNXWfx+4bHo8P7W+9mCRQeuzl0nL01q13X/B4fHg/WR8rODVlduKAZH/trXg8Hu+8VZhLurfmj9824IrH4/EvfMmw/lEDv6tfeDw+kG+xCvOte7lM2c6tLXg8Hv+ZH9L9pVSoVN3u8mXlbB674/H4yP5JJtWz/6/g8fggvtefwyYsms+Pa26S9l8OP9zeyxEej4/spU5JdisoZYWT91+kro7a/q37qtK64fH40N4mLF/W6vZPbDnUwOAteDw+prcKs49DDvUnpT3/uv38HeY/eDwe/55PmfRVWv3qIJe6/mV4PD6qn1X7Dq0VnGe/3+l5WH/h8fiIfvE3079bHcn94K+dH1urqz94PD66Twc+w6ZMW/9o9TlrbXPTGTweH92f9m9rtOWwclTypH7h8fiI/iZu/3VY/5Q8Xf/Ux1E2PB6P/9Cn5KK0itTjaLH6teXnV9px0KRDOcPj8XixSzf/8ZcXG73Fnz/j8fjYvq2fhqTWJ8/P1unMw/wFj8cH8g+Z64QlZxWpT6e4B9aufSA8Hh/ZLzrE3jBwWv8cNn9Jo1dfvg6Px0f2t157rODc+/5rGu71+TEej8e/76fceJRbp/nPbG3/OI7G4/F459XqTy9Hpx/81Mul7t/g8Xh88+79a2ptJbO6pNHxeHxs3+J9TvJbb9Xa+eH9BXg8PqYfYuuf3YP2/kbJrSlu/YPH4/Hv+Q/zF4ycuORYsFbHAAAAAElFTkSuQmCC" alt="手話音声変換アプリのURLのQRコード" width="200" height="200" />
+  </div>
+
+  <div class="url-row">
+    <a href="https://jibikaasanori97-ops.github.io/sign-to-voice/" target="_blank" rel="noopener">jibikaasanori97-ops.github.io/sign-to-voice</a>
+    <button class="copy-btn" id="copyBtn" type="button">コピー</button>
+  </div>
+
+  <ol class="steps">
+    <li><span class="n">1</span><span>スマホの<b>カメラアプリ</b>でQRコードを映す</span></li>
+    <li><span class="n">2</span><span>表示されたリンクをタップして開く</span></li>
+    <li><span class="n">3</span><span><b>カメラへのアクセス</b>を許可する</span></li>
+  </ol>
+
+  <p class="note">GitHub Pages(HTTPS)で公開しているため、スマホのブラウザでそのままカメラ機能が使えます。ホーム画面に追加するとアプリのように起動できます。</p>
+</div>
+
+<script>
+  document.getElementById('copyBtn').addEventListener('click', async () => {
+    const url = 'https://jibikaasanori97-ops.github.io/sign-to-voice/';
+    const btn = document.getElementById('copyBtn');
+    try {
+      await navigator.clipboard.writeText(url);
+      btn.textContent = 'コピー済み';
+    } catch {
+      btn.textContent = url;
+    }
+    setTimeout(() => { btn.textContent = 'コピー'; }, 1500);
+  });
+</script>
