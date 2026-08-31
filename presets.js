@@ -4,6 +4,9 @@
 // - https://www.benricho.org/yubimoji/01.html （あ行〜な行の形状説明）
 // - https://www.suretalk.mb.softbank.jp/column/contents/000106.php （あ・い・う・か・き・す・ぬの形状説明）
 //
+// 「そ」は人差し指のみを立てる形で、指の本数パターンだけでは「か」と区別できないため、
+// 「か」の条件（親指が中指第二関節に接触）に一致しない場合のみ「そ」と判定している。
+//
 // 注意: これらは筆者（Claude）が画像・映像を直接見て確認したものではなく、
 // 上記サイトの文章記述を根拠にしたルールです。指の本数パターンだけで
 // 判定しているため、向き（手のひら/手の甲の向き）だけで区別される文字
@@ -95,6 +98,39 @@ function isKa(landmarks) {
   return dist(thumbTip, middlePip) / scale < 0.5;
 }
 
+// 出典: benricho.org「親指と中指、薬指の先を合わせ、人差し指と小指を立てる。」（影絵の「きつね」）
+function isKi(landmarks) {
+  const f = fingerStates(landmarks);
+  if (!f.index || f.middle || f.ring || !f.pinky) return false;
+  const thumbTip = landmarks[TIP.thumb];
+  const middleTip = landmarks[TIP.middle];
+  const ringTip = landmarks[TIP.ring];
+  const scale = dist(landmarks[WRIST], landmarks[MCP.middle]) || 1;
+  return dist(thumbTip, middleTip) / scale < 0.55 || dist(thumbTip, ringTip) / scale < 0.55;
+}
+
+// 出典: benricho.org「手の甲を相手に向けた状態で横にし、親指、人差し指、中指を開いて伸ばす。」
+// 「す」も指の本数パターンは同じ（向きだけが違う）ため、混同を避けてこちらだけ採用。
+function isShi(landmarks) {
+  const f = fingerStates(landmarks);
+  return f.thumb && f.index && f.middle && !f.ring && !f.pinky;
+}
+
+// 出典: benricho.org「人差し指を伸ばし、『それ』と指す仕草をする。」
+function isSo(landmarks) {
+  const f = fingerStates(landmarks);
+  if (f.middle || f.ring || f.pinky || !f.index) return false;
+  // 「か」（人差し指＋親指が中指第二関節に接触）と区別するため、
+  // 親指が中指に近づいていない場合のみ「そ」と判定する。
+  return !isKa(landmarks);
+}
+
+// 出典: benricho.org「親指の先と人差し指、中指の先を合わせ、小指と薬指を立てる。」
+function isTsu(landmarks) {
+  const f = fingerStates(landmarks);
+  return !f.index && !f.middle && f.ring && f.pinky;
+}
+
 export const PRESET_SIGNS = [
   { label: "あ", test: isA },
   { label: "い", test: isI },
@@ -103,4 +139,8 @@ export const PRESET_SIGNS = [
   { label: "て", test: isTe },
   { label: "け", test: isKe },
   { label: "か", test: isKa },
+  { label: "き", test: isKi },
+  { label: "し", test: isShi },
+  { label: "そ", test: isSo },
+  { label: "つ", test: isTsu },
 ];

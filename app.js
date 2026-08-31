@@ -4,7 +4,8 @@ import {
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
 import { PRESET_SIGNS } from "./presets.js";
 
-const STORAGE_KEY = "sign2voice.templates.v2";
+const STORAGE_KEY = "sign2voice.templates.v3";
+const VOICE_STORAGE_KEY = "sign2voice.voice.v1";
 const MATCH_HISTORY_LEN = 8;
 const MATCH_STABLE_RATIO = 0.7;
 const SPEAK_COOLDOWN_MS = 1500;
@@ -17,9 +18,13 @@ const DYNAMIC_KEYFRAMES = 8;
 const DYNAMIC_BUFFER_MAX_MS = 2200;
 const DYNAMIC_MIN_MS = 700;
 
+const HAND_SHAPE_DIMS = 63; // 21 landmarks * (x,y,z)
+
 const els = {
   video: document.getElementById("video"),
   overlay: document.getElementById("overlay"),
+  flipCameraBtn: document.getElementById("flipCameraBtn"),
+  captureProgress: document.getElementById("captureProgress"),
   statusBadge: document.getElementById("statusBadge"),
   liveLabel: document.getElementById("liveLabel"),
   sentence: document.getElementById("sentence"),
@@ -34,6 +39,9 @@ const els = {
   signList: document.getElementById("signList"),
   signTypeRadios: document.getElementsByName("signType"),
   presetEnable: document.getElementById("presetEnable"),
+  voiceSelect: document.getElementById("voiceSelect"),
+  rateRange: document.getElementById("rateRange"),
+  rateVal: document.getElementById("rateVal"),
 };
 
 const ctx = els.overlay.getContext("2d");
@@ -45,12 +53,15 @@ let dynamicThreshold = parseFloat(els.dynamicThresholdRange.value);
 let matchHistory = [];
 let lastSpokenLabel = null;
 let lastSpokenAt = 0;
-let isCapturing = false;
-let japaneseVoice = null;
+let facingMode = "user";
+let selectedVoiceURI = null;
+let speakRate = parseFloat(els.rateRange.value);
 
-let latestLandmarks = null;
-let rollingFrames = []; // {landmarks, t} for dynamic recognition
+// latestHands: { left, right, primary, count } — landmarks are raw MediaPipe points or null
+let latestHands = { left: null, right: null, primary: null, count: 0 };
+let rollingFrames = []; // {hands, t} for dynamic recognition
 let presetMatchHistory = [];
+let captureState = null; // set while a training capture is running
 
 function currentSignType() {
   for (const r of els.signTypeRadios) {
@@ -65,7 +76,8 @@ function setStatus(text, kind) {
 }
 
 // ---------- ローカルストレージ ----------
-// templates[label] = [{ type: "static", vector: number[] } | { type: "dynamic", vector: number[], k: number }, ...]
+// templates[label] = [{ type: "static", vector: number[126] } | { type: "dynamic", vector: number[], k: number }, ...]
+// vector は 左手63次元 + 右手63次元 を連結したもの（不在の手は0埋め）。動きサインはそれに各キーフレームの軌跡2次元(主に検出された手の移動)を加える。
 
 function loadTemplates() {
   try {
@@ -117,11 +129,10 @@ function renderSignList() {
   }
 }
 
-// ---------- 特徴量の正規化（形） ----------
+// ---------- 特徴量の正規化（片手の形） ----------
 
 function normalizeLandmarks(landmarks) {
   const wrist = landmarks[0];
-  const middleMcp = landmarks[9];
 
   let pts = landmarks.map(p => ({
     x: p.x - wrist.x,
@@ -166,6 +177,14 @@ function distance(a, b) {
   return Math.sqrt(sum);
 }
 
+// ---------- 両手の結合特徴量 ----------
+
+function combinedShapeVector(hands) {
+  const leftVec = hands.left ? toShapeVector(hands.left) : new Array(HAND_SHAPE_DIMS).fill(0);
+  const rightVec = hands.right ? toShapeVector(hands.right) : new Array(HAND_SHAPE_DIMS).fill(0);
+  return [...leftVec, ...rightVec];
+}
+
 // ---------- 動き（軌跡）の特徴量 ----------
 
 function resampleFrames(frames, k) {
@@ -181,17 +200,20 @@ function resampleFrames(frames, k) {
 
 function buildDynamicFeature(frames, k) {
   if (frames.length === 0) return null;
-  const ref = frames[0].landmarks;
-  const refWrist = ref[0];
-  const refScale = handScale(ref);
+  const refHands = frames[0].hands;
+  const refPrimary = refHands.primary;
+  const refWrist = refPrimary ? refPrimary[0] : null;
+  const refScale = refPrimary ? handScale(refPrimary) : 1;
   const resampled = resampleFrames(frames, k);
   const feat = [];
   for (const f of resampled) {
-    const shape = toShapeVector(f.landmarks);
-    const wrist = f.landmarks[0];
-    const trajX = (wrist.x - refWrist.x) / refScale;
-    const trajY = (wrist.y - refWrist.y) / refScale;
-    feat.push(...shape, trajX, trajY);
+    feat.push(...combinedShapeVector(f.hands));
+    if (refWrist && f.hands.primary) {
+      const wrist = f.hands.primary[0];
+      feat.push((wrist.x - refWrist.x) / refScale, (wrist.y - refWrist.y) / refScale);
+    } else {
+      feat.push(0, 0);
+    }
   }
   return feat;
 }
@@ -203,7 +225,7 @@ function matchStaticLabel(vec) {
   let bestDist = Infinity;
   for (const label of Object.keys(templates)) {
     for (const entry of templates[label]) {
-      if (entry.type !== "static") continue;
+      if (entry.type !== "static" || entry.vector.length !== vec.length) continue;
       const d = distance(vec, entry.vector);
       if (d < bestDist) {
         bestDist = d;
@@ -232,19 +254,45 @@ function matchDynamicLabel(vec) {
 
 // ---------- 音声合成 ----------
 
-function pickJapaneseVoice() {
+function populateVoiceList() {
   const voices = speechSynthesis.getVoices();
-  japaneseVoice = voices.find(v => v.lang && v.lang.startsWith("ja")) || null;
+  const jaVoices = voices.filter(v => v.lang && v.lang.startsWith("ja"));
+  const list = jaVoices.length > 0 ? jaVoices : voices;
+
+  const prevSelection = els.voiceSelect.value;
+  els.voiceSelect.innerHTML = "";
+  for (const v of list) {
+    const opt = document.createElement("option");
+    opt.value = v.voiceURI;
+    opt.textContent = `${v.name} (${v.lang})`;
+    els.voiceSelect.appendChild(opt);
+  }
+
+  if (selectedVoiceURI && list.some(v => v.voiceURI === selectedVoiceURI)) {
+    els.voiceSelect.value = selectedVoiceURI;
+  } else if (prevSelection && list.some(v => v.voiceURI === prevSelection)) {
+    els.voiceSelect.value = prevSelection;
+  } else if (list.length > 0) {
+    selectedVoiceURI = list[0].voiceURI;
+    els.voiceSelect.value = selectedVoiceURI;
+  }
 }
-speechSynthesis.onvoiceschanged = pickJapaneseVoice;
-pickJapaneseVoice();
+
+speechSynthesis.onvoiceschanged = populateVoiceList;
+
+function currentVoice() {
+  const voices = speechSynthesis.getVoices();
+  return voices.find(v => v.voiceURI === els.voiceSelect.value) || null;
+}
 
 function speak(text) {
   if (!text) return;
   speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = "ja-JP";
-  if (japaneseVoice) utter.voice = japaneseVoice;
+  utter.rate = speakRate;
+  const voice = currentVoice();
+  if (voice) utter.voice = voice;
   speechSynthesis.speak(utter);
 }
 
@@ -290,9 +338,15 @@ function drawLandmarks(landmarksList, w, h) {
 
 // ---------- カメラ / モデル初期化 ----------
 
+function applyMirror() {
+  const mirror = facingMode === "user";
+  els.video.classList.toggle("mirrored", mirror);
+  els.overlay.classList.toggle("mirrored", mirror);
+}
+
 async function setupCamera() {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+    video: { facingMode, width: { ideal: 640 }, height: { ideal: 480 } },
     audio: false,
   });
   els.video.srcObject = stream;
@@ -302,6 +356,32 @@ async function setupCamera() {
   await els.video.play();
   els.overlay.width = els.video.videoWidth;
   els.overlay.height = els.video.videoHeight;
+  applyMirror();
+}
+
+async function switchCamera() {
+  els.flipCameraBtn.disabled = true;
+  try {
+    const oldStream = els.video.srcObject;
+    if (oldStream) {
+      oldStream.getTracks().forEach(t => t.stop());
+    }
+    facingMode = facingMode === "user" ? "environment" : "user";
+    lastVideoTime = -1;
+    await setupCamera();
+  } catch (err) {
+    console.error(err);
+    facingMode = facingMode === "user" ? "environment" : "user"; // ロールバック
+    try {
+      await setupCamera();
+      setStatus("認識中", "ok");
+    } catch (err2) {
+      console.error(err2);
+      setStatus("カメラ切替エラー: " + err2.message, "err");
+    }
+  } finally {
+    els.flipCameraBtn.disabled = false;
+  }
 }
 
 async function setupHandLandmarker() {
@@ -315,11 +395,26 @@ async function setupHandLandmarker() {
       delegate: "GPU",
     },
     runningMode: "VIDEO",
-    numHands: 1,
+    numHands: 2,
   });
 }
 
 let lastVideoTime = -1;
+
+function updateLatestHands(result) {
+  let left = null;
+  let right = null;
+  const list = result.landmarks || [];
+  const handedness = result.handedness || [];
+  for (let i = 0; i < list.length; i++) {
+    const label = handedness[i] && handedness[i][0] ? handedness[i][0].categoryName : null;
+    if (label === "Left" && !left) left = list[i];
+    else if (label === "Right" && !right) right = list[i];
+    else if (!left) left = list[i];
+    else if (!right) right = list[i];
+  }
+  latestHands = { left, right, primary: left || right || null, count: list.length };
+}
 
 function predictLoop() {
   const video = els.video;
@@ -327,29 +422,31 @@ function predictLoop() {
     if (video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
       const result = handLandmarker.detectForVideo(video, performance.now());
-      latestLandmarks = result.landmarks && result.landmarks.length > 0 ? result.landmarks[0] : null;
+      updateLatestHands(result);
       drawLandmarks(result.landmarks || [], els.overlay.width, els.overlay.height);
 
-      if (!isCapturing) {
-        updateRollingBuffer(latestLandmarks);
-        handleStaticRecognition(latestLandmarks);
+      if (captureState) {
+        advanceCapture();
+      } else {
+        updateRollingBuffer();
+        handleStaticRecognition();
         handleDynamicRecognition();
-        handlePresetRecognition(latestLandmarks);
+        handlePresetRecognition();
       }
     }
   }
   requestAnimationFrame(predictLoop);
 }
 
-// ---------- 認識（静止） ----------
+// ---------- 認識(静止) ----------
 
-function handleStaticRecognition(landmarks) {
-  if (!landmarks) {
+function handleStaticRecognition() {
+  if (!latestHands.primary) {
     matchHistory = [];
     els.liveLabel.textContent = "-";
     return;
   }
-  const vec = toShapeVector(landmarks);
+  const vec = combinedShapeVector(latestHands);
   const label = matchStaticLabel(vec);
 
   matchHistory.push(label);
@@ -369,10 +466,11 @@ function handleStaticRecognition(landmarks) {
   announceLabel(label);
 }
 
-// ---------- 認識（指文字プリセット） ----------
+// ---------- 認識(指文字プリセット、片手のみ) ----------
 
-function handlePresetRecognition(landmarks) {
+function handlePresetRecognition() {
   if (!els.presetEnable.checked) return;
+  const landmarks = latestHands.primary;
   if (!landmarks) {
     presetMatchHistory = [];
     return;
@@ -401,15 +499,15 @@ function handlePresetRecognition(landmarks) {
   announceLabel(matched);
 }
 
-// ---------- 認識（動き） ----------
+// ---------- 認識(動き) ----------
 
-function updateRollingBuffer(landmarks) {
+function updateRollingBuffer() {
   const now = performance.now();
-  if (!landmarks) {
+  if (!latestHands.primary) {
     rollingFrames = [];
     return;
   }
-  rollingFrames.push({ landmarks, t: now });
+  rollingFrames.push({ hands: latestHands, t: now });
   rollingFrames = rollingFrames.filter(f => now - f.t <= DYNAMIC_BUFFER_MAX_MS);
 }
 
@@ -429,7 +527,42 @@ function handleDynamicRecognition() {
   rollingFrames = []; // 連続発火を防ぐため軌跡をリセット
 }
 
-// ---------- 登録（キャプチャ） ----------
+// ---------- 登録（キャプチャ、predictLoopに同期して収集） ----------
+
+function advanceCapture() {
+  const now = performance.now();
+  if (now - captureState.lastSampleAt >= CAPTURE_INTERVAL_MS) {
+    captureState.lastSampleAt = now;
+    if (latestHands.primary) {
+      captureState.collected.push({ hands: latestHands, t: now });
+    }
+  }
+
+  const elapsed = now - captureState.startedAt;
+  const remain = Math.max(0, (captureState.duration - elapsed) / 1000);
+  els.captureProgress.hidden = false;
+  els.captureProgress.textContent = `登録中… 残り${remain.toFixed(1)}秒`;
+
+  if (elapsed >= captureState.duration) {
+    const collected = captureState.collected;
+    const resolve = captureState.resolve;
+    captureState = null;
+    els.captureProgress.hidden = true;
+    resolve(collected);
+  }
+}
+
+function startCapture(duration) {
+  return new Promise(resolve => {
+    captureState = {
+      duration,
+      startedAt: performance.now(),
+      lastSampleAt: 0,
+      collected: [],
+      resolve,
+    };
+  });
+}
 
 async function captureSign() {
   const label = els.labelInput.value.trim();
@@ -440,24 +573,8 @@ async function captureSign() {
   const type = currentSignType();
   const duration = type === "dynamic" ? DYNAMIC_CAPTURE_DURATION_MS : STATIC_CAPTURE_DURATION_MS;
 
-  isCapturing = true;
   els.captureBtn.disabled = true;
-  const collected = [];
-  const startedAt = performance.now();
-
-  await new Promise(resolve => {
-    const timer = setInterval(() => {
-      if (latestLandmarks) {
-        collected.push({ landmarks: latestLandmarks, t: performance.now() });
-      }
-      if (performance.now() - startedAt >= duration) {
-        clearInterval(timer);
-        resolve();
-      }
-    }, CAPTURE_INTERVAL_MS);
-  });
-
-  isCapturing = false;
+  const collected = await startCapture(duration);
   els.captureBtn.disabled = false;
 
   if (collected.length === 0) {
@@ -471,10 +588,10 @@ async function captureSign() {
     const vec = buildDynamicFeature(collected, DYNAMIC_KEYFRAMES);
     templates[label].push({ type: "dynamic", vector: vec, k: DYNAMIC_KEYFRAMES });
   } else {
-    const dims = collected.length ? toShapeVector(collected[0].landmarks).length : 0;
+    const dims = HAND_SHAPE_DIMS * 2;
     const avg = new Array(dims).fill(0);
     for (const f of collected) {
-      const v = toShapeVector(f.landmarks);
+      const v = combinedShapeVector(f.hands);
       for (let i = 0; i < dims; i++) avg[i] += v[i] / collected.length;
     }
     templates[label].push({ type: "static", vector: avg });
@@ -496,6 +613,7 @@ function updateCaptureButtonLabel() {
 // ---------- イベント ----------
 
 els.captureBtn.addEventListener("click", captureSign);
+els.flipCameraBtn.addEventListener("click", switchCamera);
 
 for (const r of els.signTypeRadios) {
   r.addEventListener("change", updateCaptureButtonLabel);
@@ -520,10 +638,38 @@ els.clearBtn.addEventListener("click", () => {
   lastSpokenLabel = null;
 });
 
+els.voiceSelect.addEventListener("change", () => {
+  selectedVoiceURI = els.voiceSelect.value;
+  localStorage.setItem(VOICE_STORAGE_KEY, JSON.stringify({ voiceURI: selectedVoiceURI, rate: speakRate }));
+});
+
+els.rateRange.addEventListener("input", () => {
+  speakRate = parseFloat(els.rateRange.value);
+  els.rateVal.textContent = speakRate.toFixed(2);
+  localStorage.setItem(VOICE_STORAGE_KEY, JSON.stringify({ voiceURI: selectedVoiceURI, rate: speakRate }));
+});
+
 // ---------- 起動 ----------
+
+function loadVoicePrefs() {
+  try {
+    const raw = localStorage.getItem(VOICE_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed.voiceURI) selectedVoiceURI = parsed.voiceURI;
+    if (typeof parsed.rate === "number") speakRate = parsed.rate;
+  } catch {
+    // 無視
+  }
+}
 
 async function main() {
   try {
+    loadVoicePrefs();
+    els.rateRange.value = String(speakRate);
+    els.rateVal.textContent = speakRate.toFixed(2);
+    populateVoiceList();
+
     setStatus("カメラを起動中…");
     await setupCamera();
     setStatus("モデルを読み込み中…");
